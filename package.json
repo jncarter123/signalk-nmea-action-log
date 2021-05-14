@@ -1,0 +1,17 @@
+{
+  "name": "signalk-nmea-action-log",
+  "version": "1.0.0",
+  "description": "Log actions taken by devices on the NMEA network.",
+  "main": "index.js",
+  "keywords": [
+    "signalk-node-server-plugin",
+    "signalk-category-nmea-2000",
+    "signalk-category-digital-switching"
+  ],
+  "author": "Jeremy Carter",
+  "license": "ISC",
+  "dependencies": {
+    "lodash": "^4.17.4"
+  },
+  "repository": "https://github.com/jncarter123/signalk-n2k-action-log"
+}
