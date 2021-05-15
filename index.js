@@ -16,17 +16,50 @@ module.exports = function(app) {
     var schema = {
       type: "object",
       properties: {
-        commandPGN: {
-          type: 'boolean',
-          title: 'PGN 126208 - Command Group Function with PGN 127500 or 127501'
+        commandControl: {
+          type: 'object',
+          title: 'PGN 126208 - Command Group Function with PGN 127500 or 127501',
+          properties: {
+            enable: {
+              type: 'boolean',
+              title: 'Enable Command Group Logs'
+            }
+          }
         },
-        switchControlPGN: {
-          type: 'boolean',
-          title: 'PGN 127502 - Switch Bank Control'
+        switchControl: {
+          type: 'object',
+          title: 'PGN 127502 - Switch Bank Control',
+          properties: {
+            enable: {
+              type: 'boolean',
+              title: 'Enable Switch Bank Control Logs'
+            }
+          }
         },
-        binaryStatusPGN: {
-          type: 'boolean',
-          title: 'PGN 127501 - Binary Status Report'
+        binaryStatus: {
+          type: 'object',
+          title: 'PGN 127501 - Binary Status Report',
+          properties: {
+            enable: {
+              type: 'boolean',
+              title: 'Enable Binary Status Report Logs'
+            },
+            instances: {
+              type: 'array',
+              title: 'Instances to Log',
+              items: {
+                type: 'object',
+                properties: {
+                  instance: {
+                    type: "number",
+                    title: "Instance",
+                    description: "0-255 are allowed",
+                    pattern: "^([0-9]{1,2}|1[0-9]{2}|2[0-4][0-9]|25[0-5])$"
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -41,9 +74,9 @@ module.exports = function(app) {
       try {
         var fields = msg['fields']
 
-        if (loggerOptions.switchControlPGN && msg.pgn == 127502 ||
-          (loggerOptions.commandPGN && msg.pgn == 126208 && fields['Function Code'] == 'Command' &&
-            (fields['PGN'] == 127500 || fields['PGN'] == 127501))) {
+        if ((loggerOptions.switchControl.enable && msg.pgn == 127502) ||
+          (loggerOptions.commandControl.enable && msg.pgn == 126208 && fields['Function Code'] == 'Command' && (fields['PGN'] == 127500 || fields['PGN'] == 127501)) ||
+          (loggerOptions.binaryStatus.enable && loggerOptions.binaryStatus.instances.find(instance => instance.instance === msg.fields.Instance))) {
 
           app.debug('Received a NMEA update to log.')
           app.debug('msg: ' + JSON.stringify(msg))
@@ -70,21 +103,23 @@ module.exports = function(app) {
 
     let action = {}
     switch (msg.pgn) {
+      case 127501:
+        action = getBinaryStatusAction(msg)
+        break
       case 127502:
-        action.instance = msg.fields['Switch Bank Instance']
-        let key = Object.keys(msg.fields).filter((key) => /Switch\d+/.test(key)).toString()
-        action.switchNum = key.match(/\d+/g).map(Number)
-        action.value = msg.fields[key]
+        action = getSwitchControlAction(msg)
         break
       case 126208:
         action = getCommandAction(msg)
         break
     }
 
-    let device = findDeviceInfo(msg.src)
-    let productName = device ? device.productName : 'Unknown'
-    let logmsg = `NMEA Action Log: Source: ${msg.src}, Product Name: ${productName}, Destination: ${msg.dst}, PGN: ${msg.pgn}, Instance: ${action.instance}, Switch: ${action.switchNum}, State: ${action.value}`
-    console.log(logmsg)
+    if (action) {
+      let device = findDeviceInfo(msg.src)
+      let productName = device ? device.productName : 'Unknown'
+      let logmsg = `NMEA Action Log: Source: ${msg.src}, Product Name: ${productName}, Destination: ${msg.dst}, PGN: ${msg.pgn}, Instance: ${action.instance}, Switch: ${action.switchNum}, State: ${action.value}`
+      console.log(logmsg)
+    }
   }
 
   function findDeviceInfo(source) {
@@ -115,7 +150,7 @@ module.exports = function(app) {
         action.instance = device ? device.deviceInstance : 'Unknown'
         action.switchNum = msg.fields['list'][0].Value
         action.switchNum++
-        action.value = msg.fields['list'][1].Value
+        action.value = msg.fields['list'][1].Value === 0 ? 'Off' : 'On'
         break
       case 127501:
         action.instance = msg.fields['list'][0].Value
@@ -126,6 +161,28 @@ module.exports = function(app) {
       default:
         action = null
     }
+    return action
+  }
+
+  function getBinaryStatusAction(msg) {
+    let action = {}
+
+    action.instance = msg.fields['Instance']
+    action.switchNum = Object.keys(msg.fields).find(key => msg.fields[key] === 'On')
+    action.value = msg.fields[action.switchNum]
+
+    //if no switch is On, then return null
+    return action.switchNum ? action : null
+  }
+
+  function getSwitchControlAction(msg) {
+    let action = {}
+
+    action.instance = msg.fields['Switch Bank Instance']
+    let key = Object.keys(msg.fields).filter((key) => /Switch\d+/.test(key)).toString()
+    action.switchNum = key.match(/\d+/g).map(Number)
+    action.value = msg.fields[key]
+
     return action
   }
 
